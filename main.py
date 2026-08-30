@@ -1,6 +1,8 @@
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -13,16 +15,15 @@ from evaluator import AIAsJudge
 from guardrails import DeterministicGuardrail
 from router import SemanticRouter
 
-AUDIT_PATH = Path("audit_log.jsonl")
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+AUDIT_PATH = Path("/tmp/audit_log.jsonl") if IS_VERCEL else Path("audit_log.jsonl")
 STATIC_DIR = Path(__file__).parent / "static"
+_AUDIT_MEMORY: deque[dict] = deque(maxlen=500)
 
 app = FastAPI(title="ControlPlane Sentinel API")
 guardrail = DeterministicGuardrail()
 router = SemanticRouter()
 judge = AIAsJudge()
-
-if STATIC_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 
 
 class AIRequest(BaseModel):
@@ -37,24 +38,30 @@ def now_iso() -> str:
 def log_audit_trail(data: dict) -> None:
     """Maintains a clear audit trail behind every decision."""
     data.setdefault("timestamp", now_iso())
-    with AUDIT_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(data) + "\n")
+    _AUDIT_MEMORY.append(data)
+    try:
+        with AUDIT_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data) + "\n")
+    except OSError:
+        pass
 
 
 def read_logs() -> list[dict]:
-    if not AUDIT_PATH.exists():
-        return []
-    rows = []
-    with AUDIT_PATH.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return rows
+    rows: list[dict] = []
+    try:
+        if AUDIT_PATH.exists():
+            with AUDIT_PATH.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except OSError:
+        pass
+    return rows if rows else list(_AUDIT_MEMORY)
 
 
 @app.get("/")
@@ -217,3 +224,7 @@ async def process_request(req: AIRequest):
             "use_case": req.use_case,
         },
     }
+
+
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")

@@ -5,7 +5,8 @@ Sentinel sits between your application and the model. It scans every prompt, rou
 
 Built to demonstrate a single control plane that safely serves two very different enterprise workloads: **Customer Support** (real-time, PII-sensitive) and **Internal Copilot** (deeper reasoning, human-in-the-loop).
 
-> Live app: `http://127.0.0.1:8000` after quick start.
+> Live app: [https://accenture-rho.vercel.app](https://accenture-rho.vercel.app)
+> Local: `http://127.0.0.1:8000` after quick start.
 
 ---
 
@@ -92,11 +93,12 @@ python -m pip install -r requirements.txt
 python -m uvicorn main:app --reload --port 8000
 ```
 
-Open **http://127.0.0.1:8000**.
+Open **http://127.0.0.1:8000**, or the production app at [https://accenture-rho.vercel.app](https://accenture-rho.vercel.app).
 
 Optional Streamlit dashboard in a second terminal:
 
 ```bash
+python -m pip install -r requirements-dashboard.txt
 streamlit run dashboard.py
 ```
 
@@ -147,6 +149,7 @@ streamlit run dashboard.py
 ├── evaluator.py         AI-as-judge
 ├── dashboard.py         Streamlit telemetry
 ├── requirements.txt
+├── requirements-dashboard.txt
 ├── static/              Website (HTML / CSS / JS)
 └── g.txt                Original build brief
 ```
