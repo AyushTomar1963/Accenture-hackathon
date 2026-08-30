@@ -1,12 +1,14 @@
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import median
 import json
 import os
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -16,11 +18,30 @@ from guardrails import DeterministicGuardrail
 from router import SemanticRouter
 
 IS_VERCEL = os.environ.get("VERCEL") == "1"
-AUDIT_PATH = Path("/tmp/audit_log.jsonl") if IS_VERCEL else Path("audit_log.jsonl")
-STATIC_DIR = Path(__file__).parent / "static"
-_AUDIT_MEMORY: deque[dict] = deque(maxlen=500)
+IS_RENDER = bool(os.environ.get("RENDER"))
+# Use /tmp on serverless (read-only fs elsewhere); local file for dev/Render disk
+if IS_VERCEL:
+    AUDIT_PATH = Path("/tmp/audit_log.jsonl")
+else:
+    AUDIT_PATH = Path(os.environ.get("AUDIT_LOG_PATH", "audit_log.jsonl"))
 
-app = FastAPI(title="ControlPlane Sentinel API")
+STATIC_DIR = Path(__file__).parent / "static"
+_AUDIT_MEMORY: deque[dict] = deque(maxlen=1000)
+
+app = FastAPI(
+    title="Sentinel — ControlPlane API",
+    description="Inline AI control plane: guardrail → route → judge → audit.",
+    version="1.0.0",
+)
+
+# CORS: friendly for demo. Tighten in production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 guardrail = DeterministicGuardrail()
 router = SemanticRouter()
 judge = AIAsJudge()
@@ -36,7 +57,7 @@ def now_iso() -> str:
 
 
 def log_audit_trail(data: dict) -> None:
-    """Maintains a clear audit trail behind every decision."""
+    """Append a signed-ready audit record for every decision."""
     data.setdefault("timestamp", now_iso())
     _AUDIT_MEMORY.append(data)
     try:
@@ -64,9 +85,15 @@ def read_logs() -> list[dict]:
     return rows if rows else list(_AUDIT_MEMORY)
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+async def health():
+    """Liveness probe for Render / Vercel / K8s."""
+    return {"status": "ok", "service": "sentinel", "time": now_iso()}
 
 
 @app.get("/v1/policies")
@@ -81,6 +108,7 @@ async def telemetry():
     blocked = [row for row in logs if str(row.get("event", "")).startswith("blocked")]
     flagged = [row for row in logs if row.get("event") == "flagged_hitl"]
 
+    # Illustrative baseline: every request would have hit a Frontier model at ~150 tok.
     baseline_cost = len(success) * 150
     actual_cost = sum(row.get("cost_tokens", 0) or 0 for row in success)
     latencies = [row.get("latency_ms", 0) or 0 for row in success]
@@ -96,13 +124,17 @@ async def telemetry():
         use_case = row.get("use_case") or "unknown"
         use_cases[use_case] = use_cases.get(use_case, 0) + 1
 
+    avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0
+    med_latency = round(median(latencies), 2) if latencies else 0
+
     return {
         "total": len(logs),
         "success": len(success),
         "blocked": len(blocked),
         "flagged": len(flagged),
-        "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0,
-        "token_savings": baseline_cost - actual_cost,
+        "avg_latency_ms": avg_latency,
+        "median_latency_ms": med_latency,
+        "token_savings": max(0, baseline_cost - actual_cost),
         "actual_cost": actual_cost,
         "baseline_cost": baseline_cost,
         "models": models,
@@ -117,78 +149,73 @@ async def process_request(req: AIRequest):
     start_total = time.perf_counter()
     if req.use_case not in POLICIES:
         raise HTTPException(status_code=400, detail="Unknown use case")
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="Empty prompt")
 
     policy = POLICIES[req.use_case]
     query_preview = req.query[:160]
 
-    # 1. Ingress Guardrails (pre-response gate)
+    # 1. Ingress guardrail (pre-response gate)
     is_safe, reason, gr_latency = guardrail.scan(req.query, policy["block_pii"])
     if not is_safe:
-        log_audit_trail(
-            {
-                "event": "blocked_ingress",
-                "reason": reason,
-                "use_case": req.use_case,
-                "query": query_preview,
-                "model": None,
-                "cost_tokens": 0,
-                "confidence": None,
-                "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
-            }
-        )
+        log_audit_trail({
+            "event": "blocked_ingress",
+            "reason": reason,
+            "use_case": req.use_case,
+            "query": query_preview,
+            "model": None,
+            "cost_tokens": 0,
+            "confidence": None,
+            "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
+        })
         raise HTTPException(status_code=403, detail=f"Blocked: {reason}")
 
-    # 2. Semantic routing
+    # 2. Semantic routing (cache → SLM → Frontier)
     response_text, model_used, cost = router.route_query(req.query)
 
     # 3. Egress evaluation (predictive verification)
     hitl = False
     if model_used != "Cache":
-        decision, confidence = judge.evaluate(req.query, response_text, policy["hallucination_threshold"])
+        decision, confidence = judge.evaluate(
+            req.query, response_text, policy["hallucination_threshold"]
+        )
         if decision == "BLOCK":
-            log_audit_trail(
-                {
-                    "event": "blocked_egress",
-                    "reason": "High Hallucination Risk",
-                    "use_case": req.use_case,
-                    "query": query_preview,
-                    "model": model_used,
-                    "cost_tokens": cost,
-                    "confidence": confidence,
-                    "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
-                }
-            )
-            raise HTTPException(status_code=500, detail="Blocked: High Hallucination Risk")
+            log_audit_trail({
+                "event": "blocked_egress",
+                "reason": "High hallucination risk",
+                "use_case": req.use_case,
+                "query": query_preview,
+                "model": model_used,
+                "cost_tokens": cost,
+                "confidence": confidence,
+                "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
+            })
+            raise HTTPException(status_code=422, detail="Blocked: High hallucination risk")
         if decision == "FLAG_FOR_REVIEW" and policy["allow_hitl"]:
             response_text = "[FLAGGED FOR REVIEW] " + response_text
             hitl = True
-            log_audit_trail(
-                {
-                    "event": "flagged_hitl",
-                    "reason": "Confidence below policy threshold",
-                    "use_case": req.use_case,
-                    "query": query_preview,
-                    "model": model_used,
-                    "cost_tokens": cost,
-                    "confidence": confidence,
-                    "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
-                }
-            )
+            log_audit_trail({
+                "event": "flagged_hitl",
+                "reason": "Confidence below policy threshold",
+                "use_case": req.use_case,
+                "query": query_preview,
+                "model": model_used,
+                "cost_tokens": cost,
+                "confidence": confidence,
+                "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
+            })
         elif decision == "FLAG_FOR_REVIEW" and not policy["allow_hitl"]:
-            # Real-time path cannot wait for a human — treat as block.
-            log_audit_trail(
-                {
-                    "event": "blocked_egress",
-                    "reason": "Flagged but HITL disabled",
-                    "use_case": req.use_case,
-                    "query": query_preview,
-                    "model": model_used,
-                    "cost_tokens": cost,
-                    "confidence": confidence,
-                    "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
-                }
-            )
-            raise HTTPException(status_code=500, detail="Blocked: Flagged but HITL disabled")
+            log_audit_trail({
+                "event": "blocked_egress",
+                "reason": "Flagged but HITL disabled",
+                "use_case": req.use_case,
+                "query": query_preview,
+                "model": model_used,
+                "cost_tokens": cost,
+                "confidence": confidence,
+                "latency_ms": round((time.perf_counter() - start_total) * 1000, 2),
+            })
+            raise HTTPException(status_code=422, detail="Blocked: Flagged but HITL disabled")
     else:
         decision, confidence = "ALLOW", 1.0
 
@@ -196,18 +223,16 @@ async def process_request(req: AIRequest):
     over_budget = total_latency > policy["latency_budget_ms"]
 
     if not hitl:
-        log_audit_trail(
-            {
-                "event": "success",
-                "reason": decision,
-                "use_case": req.use_case,
-                "query": query_preview,
-                "model": model_used,
-                "latency_ms": round(total_latency, 2),
-                "cost_tokens": cost,
-                "confidence": confidence,
-            }
-        )
+        log_audit_trail({
+            "event": "success",
+            "reason": decision,
+            "use_case": req.use_case,
+            "query": query_preview,
+            "model": model_used,
+            "latency_ms": round(total_latency, 2),
+            "cost_tokens": cost,
+            "confidence": confidence,
+        })
 
     return {
         "response": response_text,
@@ -226,5 +251,11 @@ async def process_request(req: AIRequest):
     }
 
 
+# Static assets with cache headers
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
+
+
+@app.exception_handler(404)
+async def not_found(_request, _exc):
+    return JSONResponse({"detail": "Not found", "hint": "See /docs for API."}, status_code=404)
