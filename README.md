@@ -1,49 +1,57 @@
-# ControlPlane Sentinel
+<div align="center">
+
+# Sentinel — ControlPlane
 
 **An inline AI control plane for the enterprise.**
-Sentinel sits between your application and the model. It scans every prompt, routes to the cheapest capable model, judges the answer before it ships, and writes a signed record for every decision — all in one process.
+Gate every prompt. Route to the cheapest capable model. Judge every answer. Audit every decision.
+All in one hop, in one process.
 
-Built to demonstrate a single control plane that safely serves two very different enterprise workloads: **Customer Support** (real-time, PII-sensitive) and **Internal Copilot** (deeper reasoning, human-in-the-loop).
+[![Live demo](https://img.shields.io/badge/live-accenture--rho.vercel.app-a100ff?style=flat-square)](https://accenture-rho.vercel.app)
+[![FastAPI](https://img.shields.io/badge/api-FastAPI-0e0a1c?style=flat-square)]()
+[![License](https://img.shields.io/badge/license-MIT-6a00c9?style=flat-square)]()
 
-> Live app: [https://accenture-rho.vercel.app](https://accenture-rho.vercel.app)
-> Local: `http://127.0.0.1:8000` after quick start.
-
----
-
-## Why it matters
-
-Enterprise AI fails in three predictable ways: it leaks sensitive data, it burns tokens on questions that didn't need a frontier model, and it produces confident hallucinations no one can trace after the fact. Sentinel closes all three gaps in a single inline layer, and proves it with an audit trail per request.
+</div>
 
 ---
 
-## The pipeline
+## The problem
+
+Enterprise deployments of large language models fail in three predictable ways:
+
+1. **Data leakage.** PII, secrets, and restricted keywords cross the wire because nothing inspects the prompt.
+2. **Cost drift.** Every request hits a frontier model — including the ones that a cached answer or a small model could have handled.
+3. **Untraceable hallucinations.** A confidently wrong answer ships to the user, and nothing on the wire proves why the system chose to send it.
+
+Point solutions exist for each. Stitching them together across teams is where the cost is.
+
+## The product
+
+Sentinel is a **single inline layer** between your application and any model provider. It closes all three gaps in one hop:
 
 ```
 Prompt
   │
   ▼
-[1] Ingress guardrail      PII · restricted keywords
+[1] Ingress guardrail      →  deterministic PII + restricted-keyword scan
   │
   ▼
-[2] Semantic router        Cache → SLM → Frontier
+[2] Semantic router        →  cache · local SLM · frontier LLM
   │
   ▼
-[3] AI-as-judge            Allow · Flag · Block
+[3] AI-as-judge            →  allow · flag · block, against your policy
   │
   ▼
-[4] Egress + audit log     Response + telemetry
+[4] Egress + audit log     →  signed record of every decision
 ```
 
-- **Ingress** is deterministic and fast — regex and keyword rules for zero-trust filtering.
+- **Ingress** is fast and rule-based — zero-trust for the edge.
 - **Routing** spends tokens only when the question deserves them.
 - **Judge** is a second model that scores hallucination risk against the active policy.
 - **Audit** records event, use case, model, latency, cost, and confidence for every decision.
 
----
+## One control plane, two enterprise postures
 
-## Two policies, one control plane
-
-The same pipeline enforces radically different postures depending on the workload.
+The same pipeline enforces radically different policies depending on the workload. Switching between them is one field in the request body — no redeploy.
 
 | Control              | Customer Support        | Internal Copilot         |
 | -------------------- | ----------------------- | ------------------------ |
@@ -52,13 +60,11 @@ The same pipeline enforces radically different postures depending on the workloa
 | Hallucination gate   | 0.85 (strict)           | 0.60 (relaxed)           |
 | Human in the loop    | Off — real-time only    | On — flag for review     |
 
-Switching workloads is one field in the request body. No redeploy.
+## Demo
 
----
+**Live:** [accenture-rho.vercel.app](https://accenture-rho.vercel.app)
 
-## Demo paths
-
-Prompts the judges can run to see each branch of the pipeline fire.
+Or click **Run guided demo** in the app to watch all four decision types (cache · SLM · frontier · block) fire hands-free.
 
 | Prompt                                    | Expected path                        |
 | ----------------------------------------- | ------------------------------------ |
@@ -69,51 +75,21 @@ Prompts the judges can run to see each branch of the pipeline fire.
 | Same email on Internal Copilot            | Allowed (PII policy off)             |
 | `confidential_project_x`                  | Ingress block (restricted keyword)   |
 
----
-
-## Deliverables
-
-| # | Deliverable            | What you get                                                           | Location                       |
-| - | ---------------------- | ---------------------------------------------------------------------- | ------------------------------ |
-| 1 | Working prototype      | FastAPI inline proxy that gates, routes, evaluates, and logs every request | `main.py`                  |
-| 2 | Two policy postures    | Distinct enterprise configs (latency, PII, hallucination, HITL)        | `config.py`                    |
-| 3 | Ingress guardrail      | Deterministic PII + restricted-keyword scan                            | `guardrails.py`                |
-| 4 | Semantic router        | Cache → local SLM → Frontier LLM for cost control                      | `router.py`                    |
-| 5 | AI-as-judge            | Egress verification: Allow / Flag for review / Block                   | `evaluator.py`                 |
-| 6 | Audit trail            | JSONL log behind every allow, flag, and block                          | `audit_log.jsonl` *(runtime)*  |
-| 7 | Control-room website   | Playground, live pipeline, telemetry, policy viewer                    | `static/`                      |
-| 8 | Streamlit telemetry    | Optional metrics dashboard                                             | `dashboard.py`                 |
-
----
-
 ## Quick start
 
 ```bash
 python -m pip install -r requirements.txt
-python -m uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
-Open **http://127.0.0.1:8000**, or the production app at [https://accenture-rho.vercel.app](https://accenture-rho.vercel.app).
+Open **http://127.0.0.1:8000**.
 
-Optional Streamlit dashboard in a second terminal:
+Optional Streamlit telemetry dashboard:
 
 ```bash
 python -m pip install -r requirements-dashboard.txt
 streamlit run dashboard.py
 ```
-
----
-
-## Walkthrough
-
-1. Open **Playground**.
-2. Pick **Customer Support** or **Internal Copilot**.
-3. Use a preset chip or type a prompt, then **Dispatch**.
-4. Watch **Ingress → Route → Judge → Egress** light up in real time.
-5. Open **Telemetry** for request counts, token savings, routing mix, and the audit table.
-6. Open **Policies** to compare the two rule sets side by side.
-
----
 
 ## API
 
@@ -126,44 +102,81 @@ streamlit run dashboard.py
 }
 ```
 
-`use_case` is `customer_support` or `internal_copilot`.
+Response includes the model routed to, judge decision, confidence score, latency, guardrail overhead, and token cost.
 
 ### All endpoints
 
-| Method | Path                       | Purpose                       |
-| ------ | -------------------------- | ----------------------------- |
-| GET    | `/`                        | Control-room website          |
-| POST   | `/v1/chat/completions`     | Inline gate                   |
-| GET    | `/v1/policies`             | Policy configs                |
-| GET    | `/v1/telemetry`            | Metrics + recent audit rows   |
+| Method | Path                    | Purpose                                 |
+| ------ | ----------------------- | --------------------------------------- |
+| GET    | `/`                     | Control-room web UI                     |
+| GET    | `/health`               | Liveness probe                          |
+| POST   | `/v1/chat/completions`  | Inline gate + route + judge             |
+| GET    | `/v1/policies`          | Configured policies                     |
+| GET    | `/v1/telemetry`         | Metrics + recent audit rows             |
+| GET    | `/docs`                 | OpenAPI (Swagger) UI                    |
 
----
+## Deployment
+
+The service is a single ASGI app and deploys anywhere Python runs.
+
+### Vercel (current)
+
+`vercel.json` is preconfigured. Push to `main` and Vercel picks up FastAPI automatically.
+
+### Render
+
+`render.yaml` is preconfigured. In the Render dashboard: **New → Blueprint**, point at this repo, deploy. Health check hits `/health`.
+
+Manual settings if not using the blueprint:
+
+- **Runtime:** Python 3.11
+- **Build:** `pip install -r requirements.txt`
+- **Start:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- **Health check:** `/health`
+
+### Any container platform
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
 
 ## Project structure
 
 ```
-├── main.py              FastAPI proxy + static site
-├── config.py            Two enterprise policies
-├── guardrails.py        Deterministic ingress scan
-├── router.py            Cache / SLM / Frontier routing
-├── evaluator.py         AI-as-judge
-├── dashboard.py         Streamlit telemetry
+├── main.py                   FastAPI app: routes, static, telemetry, audit
+├── config.py                 Two enterprise policy postures
+├── guardrails.py             Deterministic ingress scan (PII + keywords)
+├── router.py                 Cache / SLM / Frontier routing
+├── evaluator.py              AI-as-judge (hallucination scoring)
+├── dashboard.py              Optional Streamlit telemetry
+├── static/
+│   ├── index.html            Control-room UI
+│   ├── styles.css            Vibrant Accenture-inspired theme
+│   └── app.js                Playground · Telemetry · Policies
 ├── requirements.txt
 ├── requirements-dashboard.txt
-├── static/              Website (HTML / CSS / JS)
-└── g.txt                Original build brief
+├── vercel.json               Vercel config
+├── render.yaml               Render blueprint
+└── Procfile                  Generic PaaS start command
 ```
-
----
 
 ## Stack
 
-FastAPI · Uvicorn · Pydantic · Streamlit · vanilla HTML/CSS/JS
+FastAPI · Uvicorn · Pydantic · vanilla HTML / CSS / JS · optional Streamlit for the analyst view.
 
-One process serves the API and the site. No build step.
+One process serves the API and the site. No build step. No framework lock-in on the front end.
 
----
+## Design principles
+
+- **Inline, not sidecar.** A control plane that lives outside the request path can be bypassed. Sentinel is on the wire.
+- **Deterministic first, probabilistic second.** Regex and keyword scans catch the obvious. The model-based judge is the second layer, not the first.
+- **Cost is a policy.** Routing decisions are visible per request. The dashboard shows tokens saved vs. an always-Frontier baseline in real time.
+- **Every decision is a record.** The audit log is append-only JSONL. Production deployments should chain and sign entries for tamper evidence.
 
 ## Status
 
-Prototype. Deterministic guardrails, routing, and judge scoring are implemented; the judge model itself is stubbed and swappable. Audit log is append-only JSONL — production deployments should chain and sign entries for tamper evidence.
+Prototype — production-quality architecture with stubbed models. The judge and router use deterministic placeholders so demos are reproducible; both are swappable for real model calls behind the same interface.
+
+## License
+
+MIT.

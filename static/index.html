@@ -3,10 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sentinel — ControlPlane</title>
+  <title>Sentinel · Inline AI Control Plane</title>
+  <meta name="description" content="An inline AI control plane for the enterprise. Gate every prompt, route to the cheapest capable model, judge every answer, and audit every decision — in one hop." />
+  <meta property="og:title" content="Sentinel · Inline AI Control Plane" />
+  <meta property="og:description" content="Gate every prompt. Route to the cheapest capable model. Judge every answer. Audit every decision." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#a100ff" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a100ff'/%3E%3Cstop offset='.5' stop-color='%23e100ff'/%3E%3Cstop offset='1' stop-color='%23ff3d9a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='16' fill='none' stroke='white' stroke-width='2.5'/%3E%3Ccircle cx='32' cy='32' r='5' fill='white'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body>
@@ -17,9 +23,9 @@
     <div class="brand">
       <div class="mark" aria-hidden="true">
         <svg viewBox="0 0 40 40" fill="none">
-          <circle cx="20" cy="20" r="17" stroke="currentColor" stroke-width="1.4"/>
-          <path d="M20 7v6M20 27v6M7 20h6M27 20h6" stroke="currentColor" stroke-width="1.4"/>
-          <circle cx="20" cy="20" r="4.5" fill="currentColor"/>
+          <circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="2"/>
+          <path d="M20 8v5M20 27v5M8 20h5M27 20h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="20" cy="20" r="4" fill="currentColor"/>
         </svg>
       </div>
       <div>
@@ -29,9 +35,9 @@
     </div>
 
     <nav class="nav">
-      <button class="nav-btn active" data-view="playground">Playground</button>
-      <button class="nav-btn" data-view="telemetry">Telemetry</button>
-      <button class="nav-btn" data-view="policies">Policies</button>
+      <button class="nav-btn active" data-view="playground" aria-pressed="true"><span class="nav-dot"></span>Playground</button>
+      <button class="nav-btn" data-view="telemetry" aria-pressed="false"><span class="nav-dot"></span>Telemetry</button>
+      <button class="nav-btn" data-view="policies" aria-pressed="false"><span class="nav-dot"></span>Policies</button>
     </nav>
 
     <div class="rail-foot">
@@ -40,46 +46,85 @@
         <span>Inline proxy live</span>
       </div>
       <p>Ingress → Route → Judge → Egress</p>
+      <a class="rail-cta" href="https://github.com/ayushtomar1963/accenture-hackathon" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.8.1-.8.1-.8 1.2.1 1.9 1.3 1.9 1.3 1.1 1.9 2.9 1.4 3.6 1 .1-.8.4-1.4.8-1.7-2.6-.3-5.4-1.3-5.4-5.9 0-1.3.5-2.4 1.3-3.2-.1-.3-.6-1.6.1-3.3 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 3 .1 3.3.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.3v3.4c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"/></svg>
+        View on GitHub
+      </a>
     </div>
   </aside>
 
   <main>
+    <!-- HERO -->
+    <section class="hero">
+      <span class="hero-eyebrow"><span class="dot"></span>Enterprise AI · Governance in one hop</span>
+      <h2>Every prompt <span class="grad">gated,</span><br>every answer <span class="grad">judged,</span><br>every decision <span class="grad">logged.</span></h2>
+      <p class="lede">
+        Sentinel sits between your application and the model. It scans every prompt for PII, routes to the cheapest capable model,
+        verifies the answer against your policy, and writes a signed record for every decision — all inline, all in one process.
+      </p>
+      <div class="hero-ctas">
+        <button class="primary" id="cta-guided">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
+          Run guided demo
+        </button>
+        <button class="secondary" id="cta-playground">Open Playground</button>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <span>Prevented so far</span>
+          <strong class="grad" id="stat-prevented">0</strong>
+          <em>PII leaks + hallucinations blocked</em>
+        </div>
+        <div class="hero-stat">
+          <span>Tokens saved</span>
+          <strong class="grad" id="stat-tokens">0</strong>
+          <em>vs. always-Frontier baseline</em>
+        </div>
+        <div class="hero-stat">
+          <span>Median latency</span>
+          <strong id="stat-latency">— ms</strong>
+          <em>end-to-end, incl. guardrail + judge</em>
+        </div>
+      </div>
+    </section>
+
     <header class="top">
       <div>
         <p class="eyebrow" id="view-eyebrow">Interactive control plane</p>
-        <h2 id="view-title">Query the inline gate</h2>
+        <h3 class="view-title" id="view-title">Query the inline gate</h3>
       </div>
       <div class="top-meta">
-        <span class="chip">v1 / chat completions</span>
+        <span class="chip accent">v1 / chat completions</span>
         <span class="chip dim" id="clock"></span>
       </div>
     </header>
 
+    <!-- PLAYGROUND -->
     <section id="view-playground" class="view active">
       <div class="use-cases">
-        <button class="case-card active" data-case="customer_support">
+        <button class="case-card active" data-case="customer_support" aria-pressed="true">
           <span class="case-tag strict">Strict</span>
           <h3>Customer Support</h3>
-          <p>30ms budget · PII blocked · no HITL</p>
+          <p>30 ms budget · PII blocked · no HITL</p>
           <ul>
-            <li>Hallucination ≥ 0.85</li>
+            <li>Hallucination gate ≥ 0.85</li>
             <li>Real-time only</li>
           </ul>
         </button>
-        <button class="case-card" data-case="internal_copilot">
+        <button class="case-card" data-case="internal_copilot" aria-pressed="false">
           <span class="case-tag relaxed">Relaxed</span>
           <h3>Internal Copilot</h3>
-          <p>500ms budget · PII allowed · HITL on</p>
+          <p>500 ms budget · PII allowed · HITL on</p>
           <ul>
-            <li>Hallucination ≥ 0.60</li>
-            <li>Human review path</li>
+            <li>Hallucination gate ≥ 0.60</li>
+            <li>Human review path enabled</li>
           </ul>
         </button>
       </div>
 
       <div class="console">
         <div class="console-head">
-          <span>Prompt</span>
+          <span class="lbl">Prompt</span>
           <div class="hints">
             <button type="button" data-hint="reset my password">cache hit</button>
             <button type="button" data-hint="How do I export last quarter invoices?">short SLM</button>
@@ -90,10 +135,10 @@
         </div>
         <textarea id="query" rows="4" placeholder="Ask Sentinel to route, evaluate, and release a response…"></textarea>
         <div class="console-foot">
-          <p class="hint-copy">Try a cached phrase, a long reasoning prompt, or inject PII to watch the gate close.</p>
+          <p class="hint-copy">Cmd/Ctrl + Enter to dispatch · try a preset chip above</p>
           <button id="send" class="primary">
-            <span>Dispatch</span>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span>Send through Sentinel</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
       </div>
@@ -115,6 +160,7 @@
       </article>
     </section>
 
+    <!-- TELEMETRY -->
     <section id="view-telemetry" class="view">
       <div class="metrics" id="metrics"></div>
       <div class="split">
@@ -130,7 +176,10 @@
       <article class="panel wide">
         <div class="panel-head">
           <h3>Audit trail</h3>
-          <button id="refresh" class="ghost">Refresh</button>
+          <div style="display:flex; gap:8px;">
+            <button id="download" class="ghost">Download JSONL</button>
+            <button id="refresh" class="ghost">Refresh</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -152,15 +201,16 @@
       </article>
     </section>
 
+    <!-- POLICIES -->
     <section id="view-policies" class="view">
       <div class="policy-grid" id="policy-grid"></div>
       <article class="manifesto">
         <h3>What this prototype proves</h3>
         <p>
           Sentinel sits inline — before a model answers, and after it does.
-          Fast heuristics protect the edge. Semantic routing spends tokens only when
+          Deterministic heuristics protect the edge. Semantic routing spends tokens only when
           the question deserves them. A second model judges the first.
-          Every decision leaves a trail.
+          Every decision leaves a signed trail. One control plane, two enterprise postures, zero redeploy.
         </p>
       </article>
     </section>
