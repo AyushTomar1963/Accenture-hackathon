@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel — ControlPlane</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="grid" aria-hidden="true"></div>
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none">
+          <circle cx="20" cy="20" r="17" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M20 7v6M20 27v6M7 20h6M27 20h6" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="20" cy="20" r="4.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <p class="brand-kicker">ControlPlane</p>
+        <h1>Sentinel</h1>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-btn active" data-view="playground">Playground</button>
+      <button class="nav-btn" data-view="telemetry">Telemetry</button>
+      <button class="nav-btn" data-view="policies">Policies</button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="pulse-row">
+        <span class="dot live"></span>
+        <span>Inline proxy live</span>
+      </div>
+      <p>Ingress → Route → Judge → Egress</p>
+    </div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div>
+        <p class="eyebrow" id="view-eyebrow">Interactive control plane</p>
+        <h2 id="view-title">Query the inline gate</h2>
+      </div>
+      <div class="top-meta">
+        <span class="chip">v1 / chat completions</span>
+        <span class="chip dim" id="clock"></span>
+      </div>
+    </header>
+
+    <section id="view-playground" class="view active">
+      <div class="use-cases">
+        <button class="case-card active" data-case="customer_support">
+          <span class="case-tag strict">Strict</span>
+          <h3>Customer Support</h3>
+          <p>30ms budget · PII blocked · no HITL</p>
+          <ul>
+            <li>Hallucination ≥ 0.85</li>
+            <li>Real-time only</li>
+          </ul>
+        </button>
+        <button class="case-card" data-case="internal_copilot">
+          <span class="case-tag relaxed">Relaxed</span>
+          <h3>Internal Copilot</h3>
+          <p>500ms budget · PII allowed · HITL on</p>
+          <ul>
+            <li>Hallucination ≥ 0.60</li>
+            <li>Human review path</li>
+          </ul>
+        </button>
+      </div>
+
+      <div class="console">
+        <div class="console-head">
+          <span>Prompt</span>
+          <div class="hints">
+            <button type="button" data-hint="reset my password">cache hit</button>
+            <button type="button" data-hint="How do I export last quarter invoices?">short SLM</button>
+            <button type="button" data-hint="Compare the last four billing cycles, flag anomalies, and draft a CFO-ready summary with recommended actions.">frontier</button>
+            <button type="button" data-hint="Reset access for jane@acme.com SSN 123-45-6789">PII probe</button>
+            <button type="button" data-hint="Share notes from confidential_project_x">keyword</button>
+          </div>
+        </div>
+        <textarea id="query" rows="4" placeholder="Ask Sentinel to route, evaluate, and release a response…"></textarea>
+        <div class="console-foot">
+          <p class="hint-copy">Try a cached phrase, a long reasoning prompt, or inject PII to watch the gate close.</p>
+          <button id="send" class="primary">
+            <span>Dispatch</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <ol class="pipeline" id="pipeline">
+        <li data-stage="ingress"><em>01</em><strong>Ingress</strong><span>Deterministic guardrail</span></li>
+        <li data-stage="route"><em>02</em><strong>Route</strong><span>Cache · SLM · Frontier</span></li>
+        <li data-stage="judge"><em>03</em><strong>Judge</strong><span>Predictive verification</span></li>
+        <li data-stage="egress"><em>04</em><strong>Egress</strong><span>Allow · Flag · Block</span></li>
+      </ol>
+
+      <article class="result" id="result" hidden>
+        <div class="result-head">
+          <h3>Decision</h3>
+          <span class="status" id="status-pill"></span>
+        </div>
+        <p class="response" id="response-text"></p>
+        <dl class="meta" id="meta-grid"></dl>
+      </article>
+    </section>
+
+    <section id="view-telemetry" class="view">
+      <div class="metrics" id="metrics"></div>
+      <div class="split">
+        <article class="panel">
+          <h3>Routing mix</h3>
+          <div id="model-bars" class="bars"></div>
+        </article>
+        <article class="panel">
+          <h3>Decision mix</h3>
+          <div id="event-bars" class="bars"></div>
+        </article>
+      </div>
+      <article class="panel wide">
+        <div class="panel-head">
+          <h3>Audit trail</h3>
+          <button id="refresh" class="ghost">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Event</th>
+                <th>Use case</th>
+                <th>Model</th>
+                <th>Latency</th>
+                <th>Cost</th>
+                <th>Confidence</th>
+                <th>Query</th>
+              </tr>
+            </thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section id="view-policies" class="view">
+      <div class="policy-grid" id="policy-grid"></div>
+      <article class="manifesto">
+        <h3>What this prototype proves</h3>
+        <p>
+          Sentinel sits inline — before a model answers, and after it does.
+          Fast heuristics protect the edge. Semantic routing spends tokens only when
+          the question deserves them. A second model judges the first.
+          Every decision leaves a trail.
+        </p>
+      </article>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

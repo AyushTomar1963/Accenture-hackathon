@@ -1,0 +1,197 @@
+To build the Sentinel prototype in Cursor, use this modular Python stack featuring FastAPI for the proxy middleware and Streamlit for the telemetry dashboard. This simulates the inline control plane, semantic routing, and tiered evaluation logic for your two distinct enterprise use cases.  
+PDF
++ 1
+
+Save these files in your Cursor workspace.
+
+requirements.txt
+
+Plaintext
+fastapi
+uvicorn
+streamlit
+pydantic
+pandas
+config.py
+
+Python
+# Policy configurations for different enterprise environments[cite: 1]
+POLICIES = {
+    "customer_support": {
+        "latency_budget_ms": 30,
+        "block_pii": True,
+        "hallucination_threshold": 0.85, # Strict[cite: 1]
+        "allow_hitl": False # Real-time, no time for humans
+    },
+    "internal_copilot": {
+        "latency_budget_ms": 500,
+        "block_pii": False, 
+        "hallucination_threshold": 0.60, # Relaxed[cite: 1]
+        "allow_hitl": True
+    }
+}
+guardrails.py
+
+Python
+import re
+import time
+
+class DeterministicGuardrail:
+    """Zero-trust layer for fast, rule-based heuristics[cite: 1, 2]."""
+    def __init__(self):
+        self.pii_pattern = re.compile(r'\b\d{3}-\d{2}-\d{4}\b|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+        self.toxic_words = ["confidential_project_x", "internal_pass"]
+
+    def scan(self, text: str, block_pii: bool) -> tuple[bool, str, float]:
+        start = time.perf_counter()
+        if block_pii and self.pii_pattern.search(text):
+            return False, "PII Detected", (time.perf_counter() - start) * 1000
+        
+        for word in self.toxic_words:
+            if word in text.lower():
+                return False, "Restricted Keyword Detected", (time.perf_counter() - start) * 1000
+                
+        return True, "Clean", (time.perf_counter() - start) * 1000
+router.py
+
+Python
+import random
+
+class SemanticRouter:
+    """Simulates semantic caching and model routing for cost optimization[cite: 2]."""
+    def __init__(self):
+        self.cache = {"reset my password": "Go to settings > reset."}
+
+    def route_query(self, query: str) -> tuple[str, str, int]:
+        if query.lower() in self.cache:
+            return self.cache[query.lower()], "Cache", 0 # 100% cost reduction[cite: 2]
+        
+        complexity = len(query.split())
+        if complexity < 10:
+            return f"SLM generated response for: {query}", "Local SLM (Llama 3 8B)", 15 
+        else:
+            return f"Frontier LLM deep reasoning for: {query}", "Frontier API (GPT-4)", 150 
+evaluator.py
+
+Python
+import random
+
+class AIAsJudge:
+    """Simulates the secondary SLM evaluating output for hallucinations[cite: 1]."""
+    def evaluate(self, prompt: str, response: str, threshold: float) -> tuple[str, float]:
+        confidence = round(random.uniform(0.5, 1.0), 2)
+        if confidence >= threshold:
+            return "ALLOW", confidence
+        elif confidence >= (threshold - 0.15):
+            return "FLAG_FOR_REVIEW", confidence # Alert tuning[cite: 1]
+        else:
+            return "BLOCK", confidence
+main.py
+
+Python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import time
+import json
+from config import POLICIES
+from guardrails import DeterministicGuardrail
+from router import SemanticRouter
+from evaluator import AIAsJudge
+
+app = FastAPI(title="ControlPlane Sentinel API")
+guardrail = DeterministicGuardrail()
+router = SemanticRouter()
+judge = AIAsJudge()
+
+class AIRequest(BaseModel):
+    query: str
+    use_case: str # 'customer_support' or 'internal_copilot'[cite: 1]
+
+def log_audit_trail(data: dict):
+    """Maintains a clear audit trail behind every decision[cite: 1]."""
+    with open("audit_log.jsonl", "a") as f:
+        f.write(json.dumps(data) + "\n")
+
+@app.post("/v1/chat/completions")
+async def process_request(req: AIRequest):
+    start_total = time.perf_counter()
+    policy = POLICIES.get(req.use_case, POLICIES["customer_support"])
+    
+    # 1. Ingress Guardrails (Pre-response gate)[cite: 1]
+    is_safe, reason, gr_latency = guardrail.scan(req.query, policy["block_pii"])
+    if not is_safe:
+        log_audit_trail({"event": "blocked_ingress", "reason": reason, "use_case": req.use_case})
+        raise HTTPException(status_code=403, detail=f"Blocked: {reason}")
+
+    # 2. Semantic Routing
+    response_text, model_used, cost = router.route_query(req.query)
+
+    # 3. Egress Evaluation (Predictive Verification)
+    if model_used != "Cache":
+        decision, confidence = judge.evaluate(req.query, response_text, policy["hallucination_threshold"])
+        if decision == "BLOCK":
+            log_audit_trail({"event": "blocked_egress", "confidence": confidence, "use_case": req.use_case})
+            raise HTTPException(status_code=500, detail="Blocked: High Hallucination Risk")
+        elif decision == "FLAG_FOR_REVIEW" and policy["allow_hitl"]:
+            response_text = "[FLAGGED FOR REVIEW] " + response_text
+            log_audit_trail({"event": "flagged_hitl", "confidence": confidence, "use_case": req.use_case})
+    else:
+        decision, confidence = "ALLOW", 1.0
+
+    total_latency = (time.perf_counter() - start_total) * 1000
+    
+    log_audit_trail({
+        "event": "success",
+        "use_case": req.use_case,
+        "model": model_used,
+        "latency_ms": round(total_latency, 2),
+        "cost_tokens": cost,
+        "confidence": confidence
+    })
+
+    return {
+        "response": response_text,
+        "metadata": {
+            "routed_to": model_used,
+            "latency_ms": round(total_latency, 2),
+            "guardrail_overhead_ms": round(gr_latency, 2),
+            "confidence_score": confidence
+        }
+    }
+dashboard.py
+
+Python
+import streamlit as st
+import pandas as pd
+import json
+
+st.set_page_config(layout="wide")
+st.title("ControlPlane Sentinel Telemetry[cite: 1]")
+
+def load_logs():
+    try:
+        with open("audit_log.jsonl", "r") as f:
+            return pd.DataFrame([json.loads(line) for line in f])
+    except FileNotFoundError:
+        return pd.DataFrame()
+
+df = load_logs()
+
+if not df.empty:
+    col1, col2, col3 = st.columns(3)
+    
+    success_df = df[df['event'] == 'success']
+    col1.metric("Total Requests Processed", len(df))
+    col2.metric("Avg Latency Overhead", f"{success_df['latency_ms'].mean():.2f} ms" if not success_df.empty else "0 ms")
+    
+    # Calculate simulated cost savings (assuming Frontier = 150, SLM = 15, Cache = 0)
+    baseline_cost = len(success_df) * 150
+    actual_cost = success_df['cost_tokens'].sum() if not success_df.empty else 0
+    savings = baseline_cost - actual_cost
+    col3.metric("Token Cost Savings", f"{savings} tokens")
+    
+    st.subheader("Real-Time Audit Trail[cite: 1]")
+    st.dataframe(df.sort_index(ascending=False), use_container_width=True)
+else:
+    st.info("No telemetry data found. Run API requests to populate the dashboard.")
+Run uvicorn main:app --reload to start the proxy, and streamlit run dashboard.py in a separate terminal to view the metrics.
