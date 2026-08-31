@@ -19,14 +19,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ============================================================
- * LOGIN GATE
- *  - Client-side gate for the demo. Two seeded accounts.
- *  - Session survives reload via localStorage.
+ * AUTH — server-verified. Token stored in localStorage.
  * ============================================================ */
-const DEMO_ACCOUNTS = [
-  { user: "demo",  pass: "sentinel2026", label: "Demo · Product view",  role: "viewer" },
-  { user: "admin", pass: "controlplane", label: "Admin · Full access",  role: "admin"  },
-];
 const AUTH_KEY = "sentinel.auth.v1";
 
 function getSession() {
@@ -36,10 +30,31 @@ function getSession() {
 function setSession(s) { localStorage.setItem(AUTH_KEY, JSON.stringify(s)); }
 function clearSession() { localStorage.removeItem(AUTH_KEY); }
 
-function attemptLogin(user, pass) {
-  const found = DEMO_ACCOUNTS.find((a) => a.user === user.trim() && a.pass === pass);
-  if (!found) return null;
-  const session = { user: found.user, role: found.role, label: found.label, at: Date.now() };
+async function apiFetch(url, opts = {}) {
+  const session = getSession();
+  const headers = Object.assign({}, opts.headers || {});
+  if (session?.token) headers["Authorization"] = `Bearer ${session.token}`;
+  const res = await fetch(url, { ...opts, headers });
+  if (res.status === 401) {
+    clearSession();
+    showLogin();
+    throw new Error("Session expired — please sign in again.");
+  }
+  return res;
+}
+
+async function attemptLogin(user, password) {
+  const res = await fetch("/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Invalid credentials");
+  }
+  const data = await res.json();
+  const session = { user: data.user, role: data.role, label: data.label, token: data.token, at: Date.now() };
   setSession(session);
   return session;
 }
@@ -49,12 +64,12 @@ function renderAuthChip(session) {
   if (!host) return;
   host.innerHTML = `
     <div class="auth-user">
-      <span class="auth-avatar">${session.user.slice(0,1).toUpperCase()}</span>
+      <span class="auth-avatar">${esc(session.user.slice(0,1).toUpperCase())}</span>
       <span class="auth-meta">
         <b>${esc(session.user)}</b>
         <em>${esc(session.role)}</em>
       </span>
-      <button class="auth-out" id="logout" title="Sign out">↺</button>
+      <button class="auth-out" id="logout" title="Sign out" aria-label="Sign out">↺</button>
     </div>`;
   $("#logout")?.addEventListener("click", () => {
     clearSession();
@@ -62,9 +77,19 @@ function renderAuthChip(session) {
   });
 }
 
+function resetLoginForm() {
+  const form = $("#login-form");
+  if (form) form.reset();
+  const err = $("#login-error");
+  if (err) { err.hidden = true; err.textContent = ""; }
+  const btn = $(".login-submit");
+  if (btn) { btn.disabled = false; btn.querySelector("span").textContent = "Enter Sentinel"; }
+}
+
 function showLogin() {
   $("#login")?.removeAttribute("hidden");
   $("#app")?.setAttribute("hidden", "");
+  resetLoginForm();
   setTimeout(() => $("#login-user")?.focus(), 40);
 }
 
@@ -73,34 +98,55 @@ function showApp(session) {
   $("#app")?.removeAttribute("hidden");
   renderAuthChip(session);
   init();
+  updateHeroStats();
 }
 
-function bootAuth() {
-  const session = getSession();
-  if (session) return showApp(session);
-  showLogin();
-
-  $("#login-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
+async function submitLogin(e) {
+  e?.preventDefault?.();
+  const err = $("#login-error");
+  const btn = $(".login-submit");
+  const btnLabel = btn?.querySelector("span");
+  err.hidden = true;
+  err.textContent = "";
+  if (btn) { btn.disabled = true; if (btnLabel) btnLabel.textContent = "Signing in…"; }
+  try {
     const user = $("#login-user").value;
     const pass = $("#login-pass").value;
-    const s = attemptLogin(user, pass);
-    if (s) {
-      showApp(s);
-    } else {
-      const err = $("#login-error");
-      err.textContent = "Invalid credentials. Try one of the demo accounts below.";
-      err.hidden = false;
-    }
-  });
+    const session = await attemptLogin(user, pass);
+    showApp(session);
+  } catch (e2) {
+    err.textContent = e2.message || "Login failed";
+    err.hidden = false;
+  } finally {
+    if (btn) { btn.disabled = false; if (btnLabel) btnLabel.textContent = "Enter Sentinel"; }
+  }
+}
 
+function bindLoginUI() {
+  $("#login-form")?.addEventListener("submit", submitLogin);
   $$(".login-fill").forEach((btn) => {
     btn.addEventListener("click", () => {
       $("#login-user").value = btn.dataset.user;
       $("#login-pass").value = btn.dataset.pass;
-      $("#login-form").requestSubmit();
+      submitLogin();
     });
   });
+}
+
+async function bootAuth() {
+  bindLoginUI();  // ← always bind, regardless of whether a session exists
+  const session = getSession();
+  if (!session?.token) return showLogin();
+
+  // Verify token is still valid; expired → back to login
+  try {
+    const res = await fetch("/v1/auth/me", { headers: { Authorization: `Bearer ${session.token}` } });
+    if (!res.ok) throw new Error("expired");
+    showApp(session);
+  } catch {
+    clearSession();
+    showLogin();
+  }
 }
 
 /* ============================================================
@@ -256,7 +302,7 @@ async function dispatch(customQuery, customCase) {
   markStage("ingress", "active");
 
   try {
-    const res = await fetch("/v1/chat/completions", {
+    const res = await apiFetch("/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, use_case: useCase }),
@@ -363,7 +409,7 @@ function fmtTime(iso) {
 
 async function loadTelemetry() {
   try {
-    const data = await fetch("/v1/telemetry").then((r) => r.json());
+    const data = await apiFetch("/v1/telemetry").then((r) => r.json());
     const dollarSaved = ((data.token_savings || 0) / 1000) * COST_PER_1K_TOKENS_USD;
     $("#metrics").innerHTML = [
       metricCard("Requests",     data.total,                                          "total handled"),
@@ -393,7 +439,7 @@ async function loadTelemetry() {
 
 async function updateHeroStats() {
   try {
-    const data = await fetch("/v1/telemetry").then((r) => r.json());
+    const data = await apiFetch("/v1/telemetry").then((r) => r.json());
     updateHeroStatsFromTelemetry(data);
   } catch { /* ignore */ }
 }
@@ -405,7 +451,7 @@ function updateHeroStatsFromTelemetry(data) {
 }
 
 async function downloadAudit() {
-  const data = await fetch("/v1/telemetry").then((r) => r.json());
+  const data = await apiFetch("/v1/telemetry").then((r) => r.json());
   const jsonl = (data.logs || []).map((r) => JSON.stringify(r)).join("\n");
   const blob = new Blob([jsonl], { type: "application/x-ndjson" });
   const url  = URL.createObjectURL(blob);
@@ -421,7 +467,7 @@ async function downloadAudit() {
  * ============================================================ */
 async function loadPolicies() {
   try {
-    const policies = await fetch("/v1/policies").then((r) => r.json());
+    const policies = await apiFetch("/v1/policies").then((r) => r.json());
     $("#policy-grid").innerHTML = Object.entries(policies)
       .map(([key, p]) => `
         <article class="policy-card">

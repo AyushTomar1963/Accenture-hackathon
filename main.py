@@ -2,11 +2,15 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
+import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +31,63 @@ else:
 
 STATIC_DIR = Path(__file__).parent / "static"
 _AUDIT_MEMORY: deque[dict] = deque(maxlen=1000)
+
+# =========================================================
+# Auth — server-side credentials, HMAC-signed opaque tokens
+# =========================================================
+_AUTH_SECRET = os.environ.get("SENTINEL_AUTH_SECRET") or secrets.token_hex(32)
+_TOKEN_TTL_SECONDS = 60 * 60 * 8  # 8h
+
+# Demo accounts. Override with SENTINEL_ACCOUNTS env for real deployments.
+_DEMO_ACCOUNTS = {
+    "demo":  {"password": "sentinel2026", "role": "viewer", "label": "Demo · Product view"},
+    "admin": {"password": "controlplane", "role": "admin",  "label": "Admin · Full access"},
+}
+
+
+def _sign(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    sig = hmac.new(_AUTH_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{body}.{sig}"
+
+
+def _verify(token: str) -> dict | None:
+    try:
+        body, sig = token.split(".", 1)
+    except ValueError:
+        return None
+    expected = hmac.new(_AUTH_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        pad = "=" * (-len(body) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(body + pad))
+    except Exception:
+        return None
+    if payload.get("exp", 0) < time.time():
+        return None
+    return payload
+
+
+def issue_token(user: str, role: str) -> str:
+    return _sign({"user": user, "role": role, "iat": int(time.time()), "exp": int(time.time()) + _TOKEN_TTL_SECONDS})
+
+
+# Very small per-IP throttle (in-memory; resets on restart).
+_RATE: dict[str, deque] = {}
+_RATE_WINDOW = 60
+_RATE_MAX = 60  # 60 req / min / ip
+
+
+def rate_check(ip: str) -> bool:
+    now = time.time()
+    bucket = _RATE.setdefault(ip, deque())
+    while bucket and bucket[0] < now - _RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= _RATE_MAX:
+        return False
+    bucket.append(now)
+    return True
 
 app = FastAPI(
     title="Sentinel — ControlPlane API",
@@ -50,6 +111,11 @@ judge = AIAsJudge()
 class AIRequest(BaseModel):
     query: str
     use_case: str  # 'customer_support' or 'internal_copilot'
+
+
+class LoginRequest(BaseModel):
+    user: str
+    password: str
 
 
 def now_iso() -> str:
@@ -94,6 +160,38 @@ async def index():
 async def health():
     """Liveness probe for Render / Vercel / K8s."""
     return {"status": "ok", "service": "sentinel", "time": now_iso()}
+
+
+@app.post("/v1/auth/login")
+async def auth_login(req: LoginRequest):
+    """Server-verified login. Returns a signed token clients attach as Bearer."""
+    account = _DEMO_ACCOUNTS.get(req.user.strip().lower())
+    # constant-time compare, even for missing accounts
+    supplied = req.password.encode()
+    expected = (account["password"] if account else "").encode()
+    ok = account is not None and hmac.compare_digest(supplied, expected)
+    if not ok:
+        # No hint about which side was wrong.
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = issue_token(req.user, account["role"])
+    return {
+        "token": token,
+        "user": req.user,
+        "role": account["role"],
+        "label": account["label"],
+        "expires_in": _TOKEN_TTL_SECONDS,
+    }
+
+
+@app.get("/v1/auth/me")
+async def auth_me(authorization: str | None = Header(default=None)):
+    """Verify a token. Client uses this to detect expired sessions on load."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    payload = _verify(authorization[7:])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return {"user": payload["user"], "role": payload["role"], "exp": payload["exp"]}
 
 
 @app.get("/v1/policies")
